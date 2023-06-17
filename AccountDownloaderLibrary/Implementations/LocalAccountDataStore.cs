@@ -4,6 +4,7 @@ using CloudX.Shared;
 using AccountDownloaderLibrary.Extensions;
 using Medallion.Threading.FileSystem;
 using ConcurrentCollections;
+using System.Security.Cryptography;
 
 namespace AccountDownloaderLibrary
 {
@@ -94,8 +95,25 @@ namespace AccountDownloaderLibrary
             {
                 var path = GetAssetPath(job.hash);
 
+                if (!File.Exists(path + ".mime"))
+                {
+                    ProgressMessage?.Invoke($"Getting Mime-Type for asset {job.hash}");
+                    var mimeType = await job.source.GetAssetMime(job.hash).ConfigureAwait(false);
+                    if(mimeType != null)
+                    {
+                        File.WriteAllText(path + ".mime", mimeType);
+                    }
+                }
+
                 if (File.Exists(path))
-                    return;
+                {
+                    ProgressMessage?.Invoke($"Checking hash of asset {job.hash}");
+                    SHA256 sha256 = SHA256.Create();
+                    using var stream = File.OpenRead(path);
+                    var hash = sha256.ComputeHash(stream);
+                    if (Convert.ToHexString(hash).ToLowerInvariant() == job.hash.ToLowerInvariant())
+                        return;
+                }
 
                 try
                 {
@@ -352,6 +370,16 @@ namespace AccountDownloaderLibrary
         public Task<string> GetAsset(string hash)
         {
             return Task.FromResult(GetAssetPath(hash));
+        }
+
+        public Task<string> GetAssetMime(string hash)
+        {
+            var path = GetAssetPath(hash) + ".mime";
+
+            if (File.Exists(path))
+                return Task.FromResult(File.ReadAllText(path));
+            else
+                return Task.FromResult((string)null);
         }
 
         public Task<AssetData> ReadAsset(string hash) => Task.FromResult<AssetData>(File.OpenRead(GetAssetPath(hash)));

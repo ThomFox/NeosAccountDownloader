@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections.Concurrent;
+using System.Net;
 using CloudX.Shared;
 
 namespace AccountDownloaderLibrary
@@ -275,6 +276,15 @@ namespace AccountDownloaderLibrary
                 return result.Entity.Bytes;
             else
                 return 0;
+        }
+
+        public virtual async Task<string> GetAssetMime(string hash)
+        {
+            var result = await Cloud.GetAssetMime(hash);
+            if (result.IsOK)
+                return result.Content;
+            else
+                return null;
         }
 
         public virtual async Task<string> GetAsset(string hash)
