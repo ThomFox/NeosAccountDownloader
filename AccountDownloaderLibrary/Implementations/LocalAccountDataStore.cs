@@ -87,6 +87,8 @@ namespace AccountDownloaderLibrary
             ReleaseLocks();
         }
 
+        static SemaphoreSlim hasherSemaphore = new SemaphoreSlim(1);
+
         void InitDownloadProcessor(CancellationToken token)
         {
             Directory.CreateDirectory(AssetsPath);
@@ -107,12 +109,23 @@ namespace AccountDownloaderLibrary
 
                 if (File.Exists(path))
                 {
-                    ProgressMessage?.Invoke($"Checking hash of asset {job.hash}");
-                    SHA256 sha256 = SHA256.Create();
-                    using var stream = File.OpenRead(path);
-                    var hash = sha256.ComputeHash(stream);
-                    if (Convert.ToHexString(hash).ToLowerInvariant() == job.hash.ToLowerInvariant())
-                        return;
+                    var hddMode = Config.HddMode;
+                    if (hddMode)
+                        await hasherSemaphore.WaitAsync();
+                    try
+                    {
+                        ProgressMessage?.Invoke($"Checking hash of asset {job.hash}");
+                        SHA256 sha256 = SHA256.Create();
+                        using var stream = File.OpenRead(path);
+                        var hash = sha256.ComputeHash(stream);
+                        if (Convert.ToHexString(hash).ToLowerInvariant() == job.hash.ToLowerInvariant())
+                            return;
+                    }
+                    finally
+                    {
+                        if (hddMode)
+                            hasherSemaphore.Release();
+                    }
                 }
 
                 try

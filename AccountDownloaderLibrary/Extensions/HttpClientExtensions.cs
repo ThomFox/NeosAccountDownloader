@@ -6,7 +6,7 @@
         public static async Task DownloadFileTaskAsync(this HttpClient client, Uri uri, string FileName)
         {
             using var s = await client.GetStreamAsync(uri);
-            using var fs = new FileStream(FileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+            using var fs = new FileStream(FileName, FileMode.Create, FileAccess.ReadWrite);
             await s.CopyToAsync(fs);
         }
     }

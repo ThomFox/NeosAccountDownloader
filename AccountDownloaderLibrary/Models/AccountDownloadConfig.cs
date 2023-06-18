@@ -66,5 +66,10 @@
         /// Parallelism for download jobs
         /// </summary>
         public int MaxDegreeOfParallelism = 8;
+
+        /// <summary>
+        /// Disable parallelism for hashing job (HDD mode)
+        /// </summary>
+        public bool HddMode = false;
     }
 }
