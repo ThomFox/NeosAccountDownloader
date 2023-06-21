@@ -15,12 +15,14 @@ namespace AccountDownloaderLibrary
             public readonly string hash;
             public readonly IAccountDataGatherer source;
             public readonly RecordStatusCallbacks callbacks;
+            public readonly long bytes;
 
-            public AssetJob(string hash, IAccountDataGatherer source, RecordStatusCallbacks re)
+            public AssetJob(string hash, IAccountDataGatherer source, RecordStatusCallbacks re, long bytes)
             {
                 this.hash = hash;
                 this.source = source;
                 this.callbacks = re;
+                this.bytes = bytes;
             }
         }
 
@@ -119,7 +121,11 @@ namespace AccountDownloaderLibrary
                         using var stream = File.OpenRead(path);
                         var hash = sha256.ComputeHash(stream);
                         if (Convert.ToHexString(hash).ToLowerInvariant() == job.hash.ToLowerInvariant())
+                        {
+                            job.callbacks.BytesUploaded(job.bytes);
+                            job.callbacks.AssetUploaded();
                             return;
+                        }
                     }
                     finally
                     {
@@ -134,6 +140,7 @@ namespace AccountDownloaderLibrary
 
                     await job.source.DownloadAsset(job.hash, path).ConfigureAwait(false);
 
+                    job.callbacks.BytesUploaded(job.bytes);
                     job.callbacks.AssetUploaded();
 
                     ProgressMessage?.Invoke($"Finished download {job.hash}");
@@ -278,7 +285,7 @@ namespace AccountDownloaderLibrary
 
             if (record.NeosDBManifest != null)
                 foreach (var asset in record.NeosDBManifest)
-                    ScheduleAsset(asset.Hash, source, statusCallbacks);
+                    ScheduleAsset(asset.Hash, source, statusCallbacks, asset.Bytes);
 
             return null;
         }
@@ -349,16 +356,16 @@ namespace AccountDownloaderLibrary
             return latest;
         }
 
-        void ScheduleAsset(string hash, IAccountDataGatherer store, RecordStatusCallbacks recordStatusCallbacks)
+        void ScheduleAsset(string hash, IAccountDataGatherer store, RecordStatusCallbacks recordStatusCallbacks, long bytes)
         {
             if (!ScheduledAssets.Add(hash))
                 return;
 
-            var job = new AssetJob(hash, store, recordStatusCallbacks);
+            var job = new AssetJob(hash, store, recordStatusCallbacks, bytes);
 
             // TODO: I forget where we were meant to get this info from.
             var diff = new AssetDiff();
-            diff.Bytes = 0;
+            diff.Bytes = bytes;
 
             recordStatusCallbacks.AssetToUploadAdded(diff);
 
