@@ -99,6 +99,9 @@
     <Reference Include="CloudX.Shared">
       <HintPath>..\ExternalLibraries\CloudX.Shared.dll</HintPath>
     </Reference>
+    <Reference Include="MimeDetective">
+      <HintPath>..\ExternalLibraries\MimeDetective.dll</HintPath>
+    </Reference>
 
     <!-- Reference some dependencies that CloudX.Shared needs -->
     <!-- TODO: Is there a smarterway to include them? -->

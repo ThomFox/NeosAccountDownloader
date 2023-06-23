@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -76,7 +77,7 @@ public class AccountDownloadManager : IAccountDownloader
 
         // We do not include the user's username here as CloudX takes care of this.
         // It'll store items owned by a user in a folder based on their User ID.
-        var local = new LocalAccountDataStore(Interface.CurrentUser.Id, config.FilePath, config.FilePath + "/Assets", libraryConfig);
+        var local = new LocalAccountDataStore(Interface.CurrentUser.Id, config.FilePath, Path.Combine(config.FilePath, "Assets"), libraryConfig);
         Controller = new AccountDownloadController(new CloudAccountDataStore(Interface, libraryConfig), local, libraryConfig);
         Controller.ProgressMessagePosted += SurfaceProgressMessage;
         StatsTimer.Start();

@@ -5,6 +5,7 @@ using AccountDownloaderLibrary.Extensions;
 using Medallion.Threading.FileSystem;
 using ConcurrentCollections;
 using System.Security.Cryptography;
+using MimeDetective;
 
 namespace AccountDownloaderLibrary
 {
@@ -16,13 +17,15 @@ namespace AccountDownloaderLibrary
             public readonly IAccountDataGatherer source;
             public readonly RecordStatusCallbacks callbacks;
             public readonly long bytes;
+            public readonly string extension;
 
-            public AssetJob(string hash, IAccountDataGatherer source, RecordStatusCallbacks re, long bytes)
+            public AssetJob(string hash, IAccountDataGatherer source, RecordStatusCallbacks re, long bytes, string extension)
             {
                 this.hash = hash;
                 this.source = source;
                 this.callbacks = re;
                 this.bytes = bytes;
+                this.extension = extension;
             }
         }
 
@@ -99,6 +102,11 @@ namespace AccountDownloaderLibrary
             {
                 var path = GetAssetPath(job.hash);
 
+                if (!string.IsNullOrEmpty(job.extension))
+                {
+                    path = RenameWithFileExtension(path, job.extension);
+                }
+
                 if (File.Exists(path))
                 {
                     var hddMode = Config.HddMode;
@@ -108,12 +116,19 @@ namespace AccountDownloaderLibrary
                     {
                         ProgressMessage?.Invoke($"Checking hash of asset {job.hash}");
                         SHA256 sha256 = SHA256.Create();
-                        using var stream = File.OpenRead(path);
-                        var hash = sha256.ComputeHash(stream);
+                        byte[] hash;
+                        using (var stream = File.OpenRead(path))
+                        {
+                            hash = sha256.ComputeHash(stream);
+                        }
+                        
                         if (Convert.ToHexString(hash).ToLowerInvariant() == job.hash.ToLowerInvariant())
                         {
                             job.callbacks.BytesUploaded(job.bytes);
                             job.callbacks.AssetUploaded();
+
+                            GuessFileExtensionAndRename(path);
+
                             return;
                         }
                     }
@@ -132,6 +147,8 @@ namespace AccountDownloaderLibrary
 
                     job.callbacks.BytesUploaded(job.bytes);
                     job.callbacks.AssetUploaded();
+
+                    GuessFileExtensionAndRename(path);
 
                     ProgressMessage?.Invoke($"Finished download {job.hash}");
                 }
@@ -273,8 +290,35 @@ namespace AccountDownloaderLibrary
         {
             await StoreEntity(record, Path.Combine(RecordsPath(record.OwnerId), record.RecordId)).ConfigureAwait(false);
 
+            //neosdb hashes that are already seperately enqueued. At most two, so List should be the fastest
+            var hashes = new List<string>();
+
+            var assetUri = record.AssetURI;
+            if(assetUri?.StartsWith("neosdb://") == true)
+            {
+                var filename = new Uri(assetUri).Segments[1].Split('.');
+                if(filename.Length == 2)
+                {
+                    hashes.Add(filename[0]);
+                    var bytes = record.NeosDBManifest.FirstOrDefault(e => e.Hash == filename[0])?.Bytes ?? 0;
+                    ScheduleAsset(filename[0], source, statusCallbacks, bytes, filename[1]);
+                }
+            }
+
+            var thumbnailUri = record.ThumbnailURI;
+            if(thumbnailUri?.StartsWith("neosdb://") == true)
+            {
+                var filename = new Uri(thumbnailUri).Segments[1].Split('.');
+                if (filename.Length == 2)
+                {
+                    hashes.Add(filename[0]);
+                    var bytes = record.NeosDBManifest.FirstOrDefault(e => e.Hash == filename[0])?.Bytes ?? 0;
+                    ScheduleAsset(filename[0], source, statusCallbacks, bytes, filename[1]);
+                }
+            }
+
             if (record.NeosDBManifest != null)
-                foreach (var asset in record.NeosDBManifest)
+                foreach (var asset in record.NeosDBManifest.Where(e => !hashes.Contains(e.Hash)))
                     ScheduleAsset(asset.Hash, source, statusCallbacks, asset.Bytes);
 
             return null;
@@ -318,7 +362,12 @@ namespace AccountDownloaderLibrary
         string RecordsPath(string ownerId) => Path.Combine(BasePath, ownerId, "Records");
         string GroupsPath(string ownerId) => Path.Combine(BasePath, ownerId, "Groups");
         string MembersPath(string ownerId, string groupId) => Path.Combine(BasePath, ownerId, "GroupMembers", groupId);
-        string GetAssetPath(string hash) => Path.Combine(AssetsPath, hash);
+        string GetAssetPath(string hash)
+        {
+            var file = Directory.GetFiles(AssetsPath, hash + ".*").FirstOrDefault(p => !p.EndsWith(".mime"));
+            return file ?? Path.Combine(AssetsPath, hash);
+        }
+        string GetAssetPathWithoutExtension(string hash) => Path.Combine(AssetsPath, hash);
 
         public async Task<DateTime> GetLatestMessageTime(string contactId)
         {
@@ -346,12 +395,12 @@ namespace AccountDownloaderLibrary
             return latest;
         }
 
-        void ScheduleAsset(string hash, IAccountDataGatherer store, RecordStatusCallbacks recordStatusCallbacks, long bytes)
+        void ScheduleAsset(string hash, IAccountDataGatherer store, RecordStatusCallbacks recordStatusCallbacks, long bytes, string extension = null)
         {
             if (!ScheduledAssets.Add(hash))
                 return;
 
-            var job = new AssetJob(hash, store, recordStatusCallbacks, bytes);
+            var job = new AssetJob(hash, store, recordStatusCallbacks, bytes, extension);
 
             // TODO: I forget where we were meant to get this info from.
             var diff = new AssetDiff();
@@ -384,12 +433,48 @@ namespace AccountDownloaderLibrary
 
         public Task<string> GetAssetMime(string hash)
         {
-            var path = GetAssetPath(hash) + ".mime";
+            var mimepath = GetAssetPathWithoutExtension(hash) + ".mime";
+
+            if (File.Exists(mimepath))
+                return Task.FromResult(File.ReadAllText(mimepath));
+
+            var path = GetAssetPath(hash);
 
             if (File.Exists(path))
-                return Task.FromResult(File.ReadAllText(path));
-            else
-                return Task.FromResult((string)null);
+            {
+                var fileType = MimeTypes.GetFileType(new FileInfo(path));
+                return Task.FromResult(fileType.Mime);
+            }
+            return Task.FromResult((string)null);
+        }
+
+        private void GuessFileExtensionAndRename(string path, bool force = false)
+        {
+            var extension = Path.GetExtension(path);
+            if (extension == null) return;
+            if (!(string.IsNullOrEmpty(extension) || force)) return;
+
+            var directory = Path.GetDirectoryName(path);
+            var filename = Path.GetFileNameWithoutExtension(path);
+
+            var fileType = MimeTypes.GetFileType(new FileInfo(path));
+            if(!string.IsNullOrEmpty(fileType?.Extension))
+            {
+                var extensions = fileType.Extension.Split(',');
+                File.Move(path, Path.Combine(directory, $"{filename}.{extensions[0]}"));
+            }
+        }
+
+        private string RenameWithFileExtension(string path, string extension)
+        {
+            var directory = Path.GetDirectoryName(path);
+            var filename = Path.GetFileNameWithoutExtension(path);
+            var renamed = Path.Combine(directory, $"{filename}.{extension}");
+            if(File.Exists(path))
+            {
+                File.Move(path, renamed);
+            }
+            return renamed;
         }
 
         public Task<AssetData> ReadAsset(string hash) => Task.FromResult<AssetData>(File.OpenRead(GetAssetPath(hash)));

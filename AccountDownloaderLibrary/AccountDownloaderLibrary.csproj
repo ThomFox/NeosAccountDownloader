@@ -37,6 +37,9 @@
     <Reference Include="CloudX.Shared">
       <HintPath>..\ExternalLibraries\CloudX.Shared.dll</HintPath>
     </Reference>
+    <Reference Include="MimeDetective">
+      <HintPath>..\ExternalLibraries\MimeDetective.dll</HintPath>
+    </Reference>
 
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client.Core" Version="5.0.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Http.Connections.Client" Version="5.0.1.0" />
