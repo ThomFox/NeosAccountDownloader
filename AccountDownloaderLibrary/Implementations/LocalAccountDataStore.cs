@@ -99,16 +99,6 @@ namespace AccountDownloaderLibrary
             {
                 var path = GetAssetPath(job.hash);
 
-                if (!File.Exists(path + ".mime"))
-                {
-                    ProgressMessage?.Invoke($"Getting Mime-Type for asset {job.hash}");
-                    var mimeType = await job.source.GetAssetMime(job.hash).ConfigureAwait(false);
-                    if(mimeType != null)
-                    {
-                        File.WriteAllText(path + ".mime", mimeType);
-                    }
-                }
-
                 if (File.Exists(path))
                 {
                     var hddMode = Config.HddMode;
